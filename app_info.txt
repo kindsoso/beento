@@ -1,0 +1,4 @@
+应用名称: 我的足迹 (My Footprints)
+版本: 1.0.0
+包名: com.kind.footprint
+模式: 纯净单机版（每个人独立记录自己的足迹）

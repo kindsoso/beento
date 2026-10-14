@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>beento · 足迹地图</title>
+<link rel="stylesheet" href="/vendor/leaflet.css"/>
+<script src="/vendor/leaflet.js"></script>
+<style>
+html,body{height:100%;margin:0;padding:0;background:#181818;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#f3f4f6}
+#app-view{position:fixed;inset:0;z-index:1;display:none}
+#map{width:100%;height:100%;background:#181818}
+.leaflet-popup-content-wrapper{background:#222;color:#f3f4f6;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.6);font-size:13px}
+.leaflet-popup-tip{background:#222}
+/* 最早那版 OSM 底图用的深色滤镜 */
+.dark-osm{filter:brightness(.65) invert(1) contrast(3) hue-rotate(200deg) saturate(.3) brightness(.75)}
+/* OSM 连不上时自动兜底用的高德蓝图滤镜 */
+.dark-amap{filter:invert(1) hue-rotate(200deg) saturate(.5) contrast(1.25) brightness(1.12)}
+/* ---------- 登录/注册 ---------- */
+#auth-view{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 20%,#23303d,#12151a 70%);z-index:3000;padding:20px}
+.auth-card{width:100%;max-width:360px;background:rgba(26,26,26,.96);border:1px solid #333;border-radius:16px;padding:26px;box-shadow:0 20px 50px rgba(0,0,0,.6)}
+.auth-card h1{margin:0 0 4px;font-size:22px;color:#ff9944;letter-spacing:.5px}
+.auth-card p.sub{margin:0 0 18px;font-size:12px;color:#888}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tabs button{flex:1;padding:9px;border-radius:9px;border:1px solid #3a3a3a;background:#1e1e1e;color:#aaa;font-size:13px;font-weight:700;cursor:pointer}
+.tabs button.active{background:#ff9944;color:#181818;border-color:#ff9944}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;color:#999;margin-bottom:4px}
+.field input{width:100%;box-sizing:border-box;background:#111;border:1px solid #3a3a3a;color:#fff;font-size:14px;padding:10px 12px;border-radius:9px;outline:none}
+.field input:focus{border-color:#ff9944}
+.submit{width:100%;margin-top:6px;background:#168347;color:#fff;border:none;border-radius:9px;padding:11px;font-size:14px;font-weight:800;cursor:pointer}
+.submit:hover{background:#1c9c55}
+.submit:disabled{opacity:.6;cursor:default}
+.auth-msg{margin-top:12px;font-size:12px;min-height:16px;color:#ff8080}
+.auth-hint{margin-top:14px;font-size:11px;color:#777;line-height:1.6}
+/* ---------- 地图界面 ---------- */
+.top-bar{position:absolute;top:15px;right:15px;z-index:1000;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.search-box{position:relative;background:rgba(24,24,24,.9);backdrop-filter:blur(8px);border:1px solid #444;border-radius:20px;padding:4px 10px;display:flex;align-items:center;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+.search-box input{background:transparent;border:none;outline:none;color:#fff;font-size:13px;width:180px;padding:4px 6px}
+.search-box input::placeholder{color:#777}
+.search-box button{background:#ff9944;border:none;color:#181818;font-weight:bold;font-size:12px;padding:4px 12px;border-radius:14px;cursor:pointer}
+.search-results{position:absolute;top:42px;left:0;right:0;background:rgba(28,28,28,.96);border:1px solid #444;border-radius:8px;max-height:220px;overflow-y:auto;display:none;box-shadow:0 6px 16px rgba(0,0,0,.7);z-index:1001}
+.search-item{padding:8px 12px;font-size:12px;color:#ddd;border-bottom:1px solid #333;cursor:pointer;line-height:1.4}
+.search-item:hover{background:#333;color:#ff9944}
+.badge{background:rgba(30,30,30,.85);backdrop-filter:blur(6px);color:#ff9944;padding:8px 16px;border-radius:20px;font-size:14px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.4);border:1px solid rgba(255,153,68,.2);white-space:nowrap}
+.add-btn{background:#168347;border:1px solid #1f9e58;color:#fff;font-weight:700;font-size:13px;padding:8px 14px;border-radius:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4);white-space:nowrap}
+.add-btn:hover{background:#1c9c55}
+.me-btn{background:rgba(30,30,30,.85);border:1px solid #444;color:#ccc;font-size:12px;padding:8px 12px;border-radius:20px;cursor:pointer;white-space:nowrap}
+.me-btn:hover{background:#333;color:#fff}
+.add-panel{position:absolute;top:64px;right:15px;z-index:1002;width:280px;background:rgba(26,26,26,.97);border:1px solid #444;border-radius:12px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.7);display:none}
+.add-panel h3{margin:0 0 10px;font-size:14px;color:#ff9944;font-weight:800}
+.add-panel label{display:block;font-size:11px;color:#999;margin:8px 0 3px}
+.add-panel input{width:100%;box-sizing:border-box;background:#111;border:1px solid #444;color:#ff9944;font-size:13px;padding:7px 9px;border-radius:6px;outline:none;font-family:monospace}
+.add-panel input#add-name{font-family:inherit;color:#fff}
+.add-panel .row{display:flex;gap:8px;margin-top:12px}
+.add-panel .row button{flex:1;border:none;border-radius:6px;padding:8px;font-size:13px;font-weight:700;cursor:pointer}
+.btn-primary{background:#168347;color:#fff}
+.btn-primary:hover{background:#1c9c55}
+.btn-ghost{background:#333;color:#ddd}
+.btn-ghost:hover{background:#444}
+.add-msg{margin-top:9px;font-size:11px;min-height:14px}
+.add-hint{margin-top:9px;font-size:10.5px;color:#777;line-height:1.5}
+.pop-btn{background:#333;color:#fff;border:1px solid #666;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px}
+.pop-btn-add{background:#168347;color:#fff;border:1px solid #1f9e58;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px}
+.pop-btn-del{background:#5a2222;color:#ffb4b4;border:1px solid #7a3030;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px}
+.empty-tip{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:900;text-align:center;color:#7c8794;font-size:13px;background:rgba(20,22,26,.85);border:1px dashed #3b4551;border-radius:12px;padding:18px 22px;line-height:1.7;max-width:320px}
+.empty-tip b{color:#ff9944}
+@media(max-width:620px){.search-box input{width:110px}.badge{display:none}.add-panel{right:8px;left:8px;width:auto;top:60px}}
+</style>
+</head>
+<body>
+
+<!-- 登录 / 注册 -->
+<div id="auth-view">
+  <div class="auth-card">
+    <h1>🗺️ 足迹地图</h1>
+    <p class="sub">登录后，记录属于你自己的旅行足迹</p>
+    <div class="tabs">
+      <button id="tab-login" class="active" onclick="switchTab('login')">登录</button>
+      <button id="tab-register" onclick="switchTab('register')">注册</button>
+    </div>
+    <form id="auth-form" onsubmit="return submitAuth(event)">
+      <div class="field">
+        <label>用户名</label>
+        <input id="username" type="text" autocomplete="username" placeholder="2-24 位，中英文/数字/下划线" required>
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="至少 6 位" required>
+      </div>
+      <button class="submit" id="auth-submit" type="submit">登录</button>
+      <div class="auth-msg" id="auth-msg"></div>
+    </form>
+    <div class="auth-hint">每个账号的数据互相独立；密码经加密后存储。</div>
+  </div>
+</div>
+
+<!-- 地图界面 -->
+<div id="app-view" style="display:none">
+  <div class="top-bar">
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="搜索地名/地址..." onkeydown="if(event.key==='Enter'){event.preventDefault();doSearch();}">
+      <button onclick="doSearch()">搜索</button>
+      <div class="search-results" id="search-results"></div>
+    </div>
+    <button class="add-btn" onclick="toggleAddPanel()">＋ 添加足迹</button>
+    <div class="badge" id="count-badge">我的足迹: 0 处</div>
+    <button class="me-btn" id="basemap-btn" onclick="toggleBase()" title="切换底图（OSM / 高德）">底图：OSM</button>
+    <button class="me-btn" id="saveimg-btn" onclick="saveImage(this)" title="把所有足迹导出为图片：全在国内→中国版图；含国外→世界地图">存为图片</button>
+    <button class="me-btn" id="logout-btn" onclick="logout()">退出</button>
+  </div>
+
+  <div class="add-panel" id="add-panel">
+    <h3>添加足迹</h3>
+    <label>名称</label>
+    <input id="add-name" type="text" placeholder="如：大理古城">
+    <label>经纬度（直接粘贴）</label>
+    <input id="add-coord" type="text" placeholder="25.863878, 100.154285">
+    <div class="row">
+      <button class="btn-primary" onclick="addFootprint()">添加</button>
+      <button class="btn-ghost" onclick="closeAddPanel()">关闭</button>
+    </div>
+    <div class="add-msg" id="add-msg"></div>
+    <div class="add-hint">支持「纬度,经度」或「经度,纬度」（自动识别）；空格 / 中文逗号均可。</div>
+    <div class="row"><button class="btn-ghost" onclick="exportCustom(this)">导出（JSON）</button></div>
+  </div>
+
+  <div class="empty-tip" id="empty-tip">还没有足迹<br>点右上角 <b>＋ 添加足迹</b>，或在地图上点一下 → <b>存为足迹</b></div>
+  <div id="map"></div>
+</div>
+
+<script>
+let mode = 'login';
+let me = null;
+let points = [];
+let map = null;
+let layer = null;
+
+/* ---------------- 登录 / 注册 ---------------- */
+function switchTab(m) {
+  mode = m;
+  document.getElementById('tab-login').classList.toggle('active', m === 'login');
+  document.getElementById('tab-register').classList.toggle('active', m === 'register');
+  document.getElementById('auth-submit').innerText = m === 'login' ? '登录' : '注册';
+  document.getElementById('password').setAttribute('autocomplete', m === 'login' ? 'current-password' : 'new-password');
+  document.getElementById('auth-msg').innerText = '';
+}
+
+async function submitAuth(e) {
+  e.preventDefault();
+  const btn = document.getElementById('auth-submit');
+  const msg = document.getElementById('auth-msg');
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  btn.disabled = true;
+  msg.style.color = '#ff8080';
+  msg.innerText = '';
+  try {
+    const r = await fetch('/api/' + mode, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { msg.innerText = d.error || ('失败（' + r.status + '）'); return false; }
+    document.getElementById('password').value = '';
+    await enterApp(d.username);
+  } catch (err) {
+    msg.innerText = '网络错误，请重试';
+  } finally {
+    btn.disabled = false;
+  }
+  return false;
+}
+
+async function logout() {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  location.reload();
+}
+
+/* ---------------- 进入地图 ---------------- */
+async function enterApp(username) {
+  me = username;
+  document.getElementById('auth-view').style.display = 'none';
+  document.getElementById('app-view').style.display = 'block';
+  document.getElementById('logout-btn').innerText = '退出（' + username + '）';
+  buildMap();
+  await loadPoints();
+  setTimeout(() => { if (map) map.invalidateSize(); }, 200);
+}
+
+/* ---------------- 底图：默认 OSM（原味）；被封/被墙时自动切高德；也可手动切 ---------------- */
+const OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const AMAP_TILES = 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x={x}&y={y}&z={z}';
+let baseLayer = null, baseKind = 'osm', osmErrs = 0;
+// 内部坐标统一存 WGS-84；高德是 GCJ-02，按底图基准换算显示/取点
+let baseDatum = 'wgs';
+function toDisp(lat, lon) { return baseDatum === 'gcj' ? wgs2gcj(lat, lon) : [lat, lon]; }
+function fromDisp(lat, lon) { return baseDatum === 'gcj' ? gcj2wgs(lat, lon) : [lat, lon]; }
+function makeBase(kind) {
+  return kind === 'osm'
+    ? L.tileLayer(OSM_TILES, { maxZoom: 19, attribution: '&copy; OpenStreetMap', className: 'dark-osm' })
+    : L.tileLayer(AMAP_TILES, { subdomains: ['1', '2', '3', '4'], maxZoom: 18, attribution: '&copy; 高德地图', className: 'dark-amap' });
+}
+function saveBase(k) { try { localStorage.setItem('beento.base', k); } catch (e) {} }
+function setBase(kind) {
+  if (baseLayer) { try { map.removeLayer(baseLayer); } catch (e) {} }
+  baseKind = kind; osmErrs = 0; baseDatum = (kind === 'osm') ? 'wgs' : 'gcj';
+  baseLayer = makeBase(kind);
+  // 用户指定默认使用 OSM，不自动偷偷降级到高德
+  baseLayer.on('tileerror', () => { /* 忽略偶发瓦片错误，保持 OSM */ });
+  baseLayer.addTo(map);
+  const b = document.getElementById('basemap-btn');
+  if (b) b.textContent = (kind === 'osm') ? '底图：OSM' : '底图：高德';
+  if (layer) render();   // 换底图后按新坐标系重画点位
+}
+function flashBtn(txt) {
+  const b = document.getElementById('basemap-btn'); if (!b) return;
+  b.textContent = txt;
+  setTimeout(() => { b.textContent = (baseKind === 'osm') ? '底图：OSM' : '底图：高德'; }, 2000);
+}
+// 手动切：高德 → 先探测 OSM，可用才切（避免切过去正好是封禁卡片）
+async function toggleBase() {
+  if (baseKind === 'amap') {
+    flashBtn('检测 OSM…');
+    const ok = await osmUsable();
+    if (!ok) { saveBase('amap'); flashBtn('OSM 当前不可用'); return; }
+    saveBase('osm'); setBase('osm');
+  } else {
+    saveBase('amap'); setBase('amap');
+  }
+}
+// OSM 瓦片带 CORS 头 → 可直接 fetch 读状态码/大小；被封时返回小占位图（几百字节）
+async function osmUsable() {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 4000);
+    // ★ 必须带 Referer：OSM 对「无来源」的请求一律回封锁卡（x-blocked: No referer sent）
+    const r = await fetch('https://tile.openstreetmap.org/0/0/0.png', { cache: 'no-store', signal: ctl.signal, referrerPolicy: 'strict-origin-when-cross-origin' });
+    clearTimeout(t);
+    if (!r.ok) return false;
+    const b = await r.blob();
+    return b.size > 1500;
+  } catch (e) { return false; }
+}
+function initBase() {
+  // 坚定默认使用 OSM，清除静默降级导致的历史残留
+  let saved = null; try { saved = localStorage.getItem('beento.base'); } catch (e) {}
+  const first = (saved === 'amap') ? 'amap' : 'osm';
+  setBase('osm'); // 默认始终进入 OSM
+  saveBase('osm');
+}
+
+function buildMap() {
+  if (map) return;
+  map = L.map('map').setView([34.0, 108.0], 4);
+  layer = L.layerGroup().addTo(map);
+  // 底图：默认 OSM（原味），被封/被墙自动切高德；右上「底图」按钮可手动切
+  initBase();
+  // 确保容器尺寸就绪后再渲染（修"登录后地图不显示"）
+  setTimeout(() => { map.invalidateSize(); }, 120);
+  window.addEventListener('resize', () => { if (map) map.invalidateSize(); });
+
+  // 点击地图 → 复制坐标 / 存为足迹
+  const clickPopup = L.popup();
+  map.on('click', (e) => {
+    const w = fromDisp(e.latlng.lat, e.latlng.lng);
+    const lat = w[0].toFixed(6), lng = w[1].toFixed(6);
+    const coordStr = lat + ', ' + lng;
+    clickPopup.setLatLng(e.latlng).setContent(
+      '<div style="text-align:center;padding:4px 2px;">' +
+      '<div style="font-size:11px;color:#aaa;margin-bottom:4px;">点击位置经纬度</div>' +
+      '<input id="coord-input" type="text" readonly value="' + coordStr + '" style="width:160px;background:#181818;border:1px solid #444;color:#ff9944;font-family:monospace;font-size:12px;text-align:center;padding:3px;border-radius:3px;margin-bottom:6px;display:block;margin-left:auto;margin-right:auto;cursor:pointer;" onclick="this.select();">' +
+      '<button class="pop-btn" onclick="copyCoord(\'' + coordStr + '\', this)">复制坐标</button> ' +
+      '<button class="pop-btn-add" onclick="openAddPanel(' + lat + ', ' + lng + ')">存为足迹</button>' +
+      '</div>'
+    ).openOn(map);
+  });
+}
+
+function fmt(n) { return Number(n).toFixed(6); }
+
+function render() {
+  layer.clearLayers();
+  points.forEach((p, i) => {
+    const d = toDisp(p[0], p[1]);
+    L.circleMarker([d[0], d[1]], {
+      color: '#ff9944', fillColor: '#ff9944', fillOpacity: .85, weight: 2, radius: 5
+    }).addTo(layer).bindPopup(
+      '<div style="text-align:center;padding:2px;">' +
+      '<b style="color:#ff9944">' + (p[2] || '足迹') + '</b><br>' +
+      '<span style="font-size:11px;color:#aaa">' + fmt(p[0]) + ', ' + fmt(p[1]) + '</span><br><br>' +
+      '<button class="pop-btn" onclick="copyCoord(\'' + fmt(p[0]) + ', ' + fmt(p[1]) + '\', this)">复制坐标</button> ' +
+      '<button class="pop-btn-del" onclick="removePoint(' + i + ')">删除</button>' +
+      '</div>'
+    );
+  });
+  document.getElementById('count-badge').innerText = '我的足迹: ' + points.length + ' 处';
+  document.getElementById('empty-tip').style.display = points.length ? 'none' : 'block';
+}
+
+async function loadPoints() {
+  try {
+    const r = await fetch('/api/footprints', { cache: 'no-store' });
+    if (r.status === 401) { location.reload(); return; }
+    const d = await r.json();
+    points = Array.isArray(d) ? d : [];
+  } catch { points = []; }
+  render();
+}
+
+async function savePoints() {
+  try {
+    const r = await fetch('/api/footprints', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(points)
+    });
+    if (!r.ok) throw new Error();
+    return true;
+  } catch {
+    const msg = document.getElementById('add-msg');
+    if (msg) { msg.style.color = '#ff8080'; msg.innerText = '⚠️ 保存失败，请检查网络后重试'; }
+    return false;
+  }
+}
+
+/* ---------------- 添加 / 删除 ---------------- */
+function toggleAddPanel() {
+  const p = document.getElementById('add-panel');
+  p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+  if (p.style.display === 'block') document.getElementById('add-name').focus();
+}
+function closeAddPanel() {
+  document.getElementById('add-panel').style.display = 'none';
+  document.getElementById('add-msg').innerText = '';
+}
+function openAddPanel(lat, lng) {
+  document.getElementById('add-panel').style.display = 'block';
+  if (lat != null) {
+    document.getElementById('add-coord').value = fmt(lat) + ', ' + fmt(lng);
+    document.getElementById('add-name').focus();
+  }
+  map.closePopup();
+}
+
+function parseCoord(text) {
+  const nums = (text || '').replace(/[，、；;]/g, ' ').replace(/,/g, ' ').trim()
+    .split(/\s+/).filter(Boolean).map(Number);
+  if (nums.length < 2 || nums.slice(0, 2).some(n => !isFinite(n))) return null;
+  let a = nums[0], b = nums[1], lat, lng;
+  if (Math.abs(a) > 90 && Math.abs(b) <= 90) { lng = a; lat = b; }
+  else { lat = a; lng = b; }
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return [lat, lng];
+}
+
+async function addFootprint() {
+  const name = document.getElementById('add-name').value.trim();
+  const coord = parseCoord(document.getElementById('add-coord').value);
+  const msg = document.getElementById('add-msg');
+  if (!coord) { msg.style.color = '#ff5555'; msg.innerText = '❌ 坐标格式不对，示例：25.863878, 100.154285'; return; }
+  if (!name) { msg.style.color = '#ff5555'; msg.innerText = '❌ 请填一个名称'; return; }
+  points.push([coord[0], coord[1], name]);
+  render();
+  map.setView(coord, 12);
+  document.getElementById('add-name').value = '';
+  document.getElementById('add-coord').value = '';
+  msg.style.color = '#7cd992';
+  msg.innerText = '✅ 已添加「' + name + '」';
+  await savePoints();
+}
+
+async function removePoint(i) {
+  if (!confirm('删除「' + (points[i][2] || '这条足迹') + '」？')) return;
+  points.splice(i, 1);
+  render();
+  map.closePopup();
+  await savePoints();
+}
+
+function exportCustom(btn) {
+  copyCoord(JSON.stringify(points), btn);
+}
+
+/* ---------------- 导出为图片（纯 canvas 合成，不依赖第三方库）----------------
+   规则：全部足迹在中国境内 → 中国版图；只要有一点在国外 → 世界地图
+   说明：OSM 与高德瓦片都带 access-control-allow-origin: * → 可 fetch 后画进 canvas（不会被污染）*/
+const CHINA_BBOX = [[3.86, 73.5], [53.56, 135.09]];      // [SW],[NE] 判定“是否在国內”的范围（含南海诸岛）
+const CHINA_FRAME = [[18.15, 73.5], [53.56, 135.09]];     // 出图取景：裁到海南最南端（一般不画到南海）
+const WORLD_BBOX = [[-56, -180], [84, 180]];              // 去掉两极空白，保留有人区
+const TILE_FILTER = {
+  osm:  'brightness(.65) invert(1) contrast(3) hue-rotate(200deg) saturate(.3) brightness(.75)',
+  amap: 'invert(1) hue-rotate(200deg) saturate(.5) contrast(1.25) brightness(1.12)'
+};
+// 中国边界（DataV，GCJ-02，带 CORS）——只在中国版图模式下画
+let CN_GEO = null;
+async function chinaGeo() {
+  if (CN_GEO) return CN_GEO;
+  try { const s = localStorage.getItem('beento.cng'); if (s) { CN_GEO = JSON.parse(s); if (CN_GEO) return CN_GEO; } } catch (e) {}
+  for (let i = 0; i < 3; i++) {   // 国界下载失败时重试（否则图上会静默少一圈国界）
+    try {
+      const r = await fetch('https://geo.datav.aliyun.com/areas_v3/bound/100000.json', { cache: i ? 'reload' : 'force-cache' });
+      if (r.ok) {
+        const j = await r.json();
+        if (j && j.features && j.features.length) {
+          CN_GEO = j;
+          try { localStorage.setItem('beento.cng', JSON.stringify(j)); } catch (e) {}
+          return j;
+        }
+      }
+    } catch (e) {}
+    await new Promise(s => setTimeout(s, 700 * (i + 1)));
+  }
+  return null;
+}
+async function drawChinaBorder(g, z, rect) {
+  const geo = await chinaGeo();
+  if (!geo) return false;
+  g.save();
+  g.lineWidth = 2; g.strokeStyle = 'rgba(255,153,68,.75)'; g.lineJoin = 'round';
+  geo.features.forEach(f => {
+    const gm = f.geometry; if (!gm) return;
+    const polys = gm.type === 'Polygon' ? [gm.coordinates] : (gm.type === 'MultiPolygon' ? gm.coordinates : []);
+    polys.forEach(poly => poly.forEach(ring => {
+      g.beginPath();
+      for (let i = 0; i < ring.length; i++) {
+        const c = ring[i];
+        const w = (baseDatum === 'gcj') ? [c[1], c[0]] : gcj2wgs(c[1], c[0]);   // 边界数据是 GCJ-02
+        const pt = map.project(L.latLng(w[0], w[1]), z);
+        const x = pt.x - rect.x0, y = pt.y - rect.y0;
+        i ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.stroke();
+    }));
+  });
+  g.restore();
+  return true;
+}
+function tileURL(kind, z, x, y) {
+  if (kind === 'osm') return 'https://tile.openstreetmap.org/' + z + '/' + x + '/' + y + '.png';
+  return 'https://wprd0' + (((x + y) % 4) + 1) + '.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x=' + x + '&y=' + y + '&z=' + z;
+}
+async function fetchTile(kind, z, x, y, reload) {
+  const url = tileURL(kind, z, x, y);
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(url, { mode: 'cors', cache: reload ? 'reload' : 'force-cache', referrerPolicy: 'strict-origin-when-cross-origin' });
+      if (r.ok) {
+        const b = await r.blob();
+        // >60B 是合法瓦片（纯海面/冰面只有 ~103B）；≈6987B 是 OSM 的封锁卡 → 当失败处理
+        if (b.size > 60 && !(b.size >= 6960 && b.size <= 7010)) return await createImageBitmap(b);
+      }
+      if (r.status === 429) await new Promise(s => setTimeout(s, 1200));   // 限流 → 退避重试
+    } catch (e) {}
+    await new Promise(s => setTimeout(s, 250 * (i + 1)));
+  }
+  return null;
+}
+// 找出画面里「有内容」的范围（用于裁掉四周纯黑的无数据边）
+function contentBounds(g, W, H) {
+  const full = { l: 0, t: 0, r: W - 1, b: H - 1 };
+  let d;
+  try { d = g.getImageData(0, 0, W, H).data; } catch (e) { return full; }
+  const step = 2, FRAC = 0.18;   // 一行/一列里「有内容」的像素占比 < 18% 视为空行（背景填纯黑）
+  const rowOK = y => { let n = 0, tot = 0; for (let x = 0; x < W; x += step) { const i = (y * W + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 8) n++; tot++; } return n / tot > FRAC; };
+  const colOK = x => { let n = 0, tot = 0; for (let y = 0; y < H; y += step) { const i = (y * W + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 8) n++; tot++; } return n / tot > FRAC; };
+  let t = 0, b = H - 1, l = 0, r = W - 1;
+  while (t < b && !rowOK(t)) t++;
+  while (b > t && !rowOK(b)) b--;
+  while (l < r && !colOK(l)) l++;
+  while (r > l && !colOK(r)) r--;
+  const P2 = 16;
+  return { l: Math.max(0, l - P2), t: Math.max(0, t - P2), r: Math.min(W - 1, r + P2), b: Math.min(H - 1, b + P2) };
+}
+async function buildExportCanvas() {
+  const inChina = points.length > 0 && points.every(p =>
+    p[0] >= CHINA_BBOX[0][0] && p[0] <= CHINA_BBOX[1][0] &&
+    p[1] >= CHINA_BBOX[0][1] && p[1] <= CHINA_BBOX[1][1]);
+  const bb = inChina ? CHINA_FRAME.map(r => r.slice()) : WORLD_BBOX;
+  // 若有足迹在海南以南（如西沙/南沙），取景自动往下延到包住它
+  if (inChina) points.forEach(p => { if (p[0] < bb[0][0]) bb[0][0] = p[0]; });
+  const PAD = 26;
+  let z = 1, rect = null;
+  for (let zz = 13; zz >= 1; zz--) {
+    const ne = map.project(L.latLng(bb[1][0], bb[1][1]), zz);
+    const sw = map.project(L.latLng(bb[0][0], bb[0][1]), zz);
+    const w = ne.x - sw.x + PAD * 2, h = sw.y - ne.y + PAD * 2;
+    if (w <= 2100 && h <= 2100) { z = zz; rect = { x0: sw.x - PAD, y0: ne.y - PAD, x1: ne.x + PAD, y1: sw.y + PAD }; break; }
+  }
+  if (!rect) { z = 1; const ne = map.project(L.latLng(bb[1][0], bb[1][1]), 1), sw = map.project(L.latLng(bb[0][0], bb[0][1]), 1); rect = { x0: sw.x - PAD, y0: ne.y - PAD, x1: ne.x + PAD, y1: sw.y + PAD }; }
+  let W = Math.ceil(rect.x1 - rect.x0), H = Math.ceil(rect.y1 - rect.y0);
+  const FOOT = 58;
+  let c = document.createElement('canvas'); c.width = W; c.height = H + FOOT;
+  let g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height);
+  const useFilter = ('filter' in g);
+  if (useFilter) g.filter = TILE_FILTER[baseKind] || 'none';
+
+  const tx0 = Math.floor(rect.x0 / 256), tx1 = Math.floor((rect.x1 - 1) / 256);
+  const ty0 = Math.floor(rect.y0 / 256), ty1 = Math.floor((rect.y1 - 1) / 256);
+  const n = Math.pow(2, z), jobs = [], tiles = [], miss = [];
+  let total = 0, failed = 0;
+  for (let tx = tx0; tx <= tx1; tx++) for (let ty = ty0; ty <= ty1; ty++) {
+    if (tx < 0 || ty < 0 || tx >= n || ty >= n) continue;
+    total++;
+    const dx = tx * 256 - rect.x0, dy = ty * 256 - rect.y0;
+    jobs.push(async () => {
+      const bmp = await fetchTile(baseKind, z, tx, ty);
+      if (!bmp) { failed++; miss.push([tx, ty]); return; }
+      g.drawImage(bmp, dx, dy, 256, 256);
+      tiles.push({ bmp: bmp, dx: dx, dy: dy });
+    });
+  }
+  // 有限并发（每次 8 路，对瓦片服务礼貌一点）
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, async () => {
+    while (i < jobs.length) { const j = jobs[i++]; await j(); }
+  }));
+  if (total && failed === total) throw new Error('瓦片获取全部失败');
+
+  // ★ 补齐失败瓦片：等一会儿再逐个重取（并发风暴后往往是限流，隔一下就好）
+  if (miss.length) {
+    await new Promise(s => setTimeout(s, 1600));
+    for (const m of miss) {
+      const bmp = await fetchTile(baseKind, z, m[0], m[1], true);
+      if (bmp) {
+        const dx = m[0] * 256 - rect.x0, dy = m[1] * 256 - rect.y0;
+        g.drawImage(bmp, dx, dy, 256, 256);
+        tiles.push({ bmp: bmp, dx: dx, dy: dy });
+        failed--;
+      }
+      await new Promise(s => setTimeout(s, 150));
+    }
+  }
+
+  // ★ 自动裁掉四周「无数据」黑边（高德境外是纯白瓦片 → 反色滤镜后变纯黑）
+  let trimmed = false;
+  try {
+    const bd = contentBounds(g, W, H);
+    if (bd.l > 0 || bd.t > 0 || bd.r < W - 1 || bd.b < H - 1) {
+      const nW = bd.r - bd.l + 1, nH = bd.b - bd.t + 1;
+      const c2 = document.createElement('canvas'); c2.width = nW; c2.height = nH + FOOT;
+      const g2 = c2.getContext('2d');
+      g2.fillStyle = '#000'; g2.fillRect(0, 0, c2.width, c2.height);
+      if ('filter' in g2) g2.filter = TILE_FILTER[baseKind] || 'none';
+      tiles.forEach(t => g2.drawImage(t.bmp, t.dx - bd.l, t.dy - bd.t, 256, 256));
+      g2.filter = 'none';
+      rect.x0 += bd.l; rect.y0 += bd.t;
+      c = c2; g = g2; W = nW; H = nH; trimmed = true;
+    }
+  } catch (e) {}
+
+  g.filter = 'none';
+  // 中国版图 → 叠一圈国界线（与点位同色系）
+  let border = false;
+  if (inChina) { try { border = await drawChinaBorder(g, z, rect); } catch (e) {} }
+  // 画足迹点（用显示坐标系，与底图对齐）
+  const marks = points.map(p => {
+    const d = toDisp(p[0], p[1]);
+    const pt = map.project(L.latLng(d[0], d[1]), z);
+    return { x: pt.x - rect.x0, y: pt.y - rect.y0, n: p[2] || '' };
+  });
+  marks.forEach(m => {
+    g.beginPath(); g.arc(m.x, m.y, 7, 0, Math.PI * 2);
+    g.fillStyle = '#ff9944'; g.fill();
+    g.lineWidth = 2.5; g.strokeStyle = '#ffffff'; g.stroke();
+  });
+  // 点名标注（点太多就不标，避免糊成一团）
+  const showLabels = points.length <= 30;
+  if (showLabels) {
+    g.font = '600 15px system-ui,-apple-system,"PingFang SC",sans-serif';
+    g.textBaseline = 'middle'; g.lineJoin = 'round'; g.textAlign = 'left';
+    marks.forEach(m => {
+      if (!m.n) return;
+      const tw = g.measureText(m.n).width;
+      let tx = m.x + 12;
+      if (tx + tw > W - 10) tx = m.x - 12 - tw;      // 右侧放不下就放到点的左边
+      g.lineWidth = 3.5; g.strokeStyle = 'rgba(6,9,14,.92)'; g.strokeText(m.n, tx, m.y);
+      g.fillStyle = '#ffd9b0'; g.fillText(m.n, tx, m.y);
+    });
+  }
+  window.__exportStats = { z: z, W: W, H: H, tiles: total, failed: failed, base: baseKind, china: inChina, border: border, labels: showLabels, trimmed: trimmed };
+  // 页脚
+  g.fillStyle = '#0d1117'; g.fillRect(0, H, W, FOOT);
+  g.textBaseline = 'middle';
+  g.textAlign = 'left';  g.fillStyle = '#e8e8e8'; g.font = '600 20px system-ui,-apple-system,sans-serif';
+  g.fillText('beento · 足迹地图', 20, H + FOOT / 2);
+  g.textAlign = 'right'; g.fillStyle = '#ff9944';
+  g.fillText((me || '') + ' · 共 ' + points.length + ' 处 · ' + new Date().toLocaleDateString('zh-CN') + ' · ' + (baseKind === 'osm' ? 'OSM' : '高德'), W - 20, H + FOOT / 2);
+  return c;
+}
+async function saveImage(btn) {
+  if (!points.length) { alert('还没有足迹，先添加几条吧'); return; }
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '生成中…'; btn.disabled = true; }
+  try {
+    const c = await buildExportCanvas();
+    const name = 'beento-' + new Date().toISOString().slice(0, 10) + '.png';
+    const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+    if (!blob) throw new Error('导出失败');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    if (btn) btn.textContent = '已保存 ✓';
+  } catch (e) {
+    if (btn) btn.textContent = '导出失败';
+    alert('生成图片失败：' + e.message + '\n（若是 OSM 底图，先确认能正常看到地图）');
+  } finally {
+    if (btn) setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2200);
+  }
+}
+
+/* ---------------- 坐标换算（WGS-84 ⇄ GCJ-02）---------------- */
+const _A = 6378245.0, _EE = 0.00669342162296594323;
+function _outOfChina(lat, lon) { return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271; }
+function _tfLat(x, y) {
+  let r = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+  r += (20 * Math.sin(y * Math.PI) + 40 * Math.sin(y / 3 * Math.PI)) * 2 / 3;
+  r += (160 * Math.sin(y / 12 * Math.PI) + 320 * Math.sin(y * Math.PI / 30)) * 2 / 3;
+  return r;
+}
+function _tfLon(x, y) {
+  let r = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+  r += (20 * Math.sin(x * Math.PI) + 40 * Math.sin(x / 3 * Math.PI)) * 2 / 3;
+  r += (150 * Math.sin(x / 12 * Math.PI) + 300 * Math.sin(x / 30 * Math.PI)) * 2 / 3;
+  return r;
+}
+function _delta(lat, lon) {
+  let dLat = _tfLat(lon - 105, lat - 35), dLon = _tfLon(lon - 105, lat - 35);
+  const radLat = lat / 180 * Math.PI;
+  let magic = Math.sin(radLat); magic = 1 - _EE * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180) / ((_A * (1 - _EE)) / (magic * sqrtMagic) * Math.PI);
+  dLon = (dLon * 180) / (_A / sqrtMagic * Math.cos(radLat) * Math.PI);
+  return [dLat, dLon];
+}
+function wgs2gcj(lat, lon) { if (_outOfChina(lat, lon)) return [lat, lon]; const d = _delta(lat, lon); return [lat + d[0], lon + d[1]]; }
+function gcj2wgs(lat, lon) { if (_outOfChina(lat, lon)) return [lat, lon]; const d = _delta(lat, lon); return [lat - d[0], lon - d[1]]; }
+
+/* ---------------- 搜索 ---------------- */
+let searchMarker = null;
+async function doSearch() {
+  const query = document.getElementById('search-input').value.trim();
+  const resBox = document.getElementById('search-results');
+  if (!query) return;
+  resBox.style.display = 'block';
+  resBox.innerHTML = '<div style="padding:8px 12px;color:#999;font-size:12px;">搜索中...</div>';
+  try {
+    // 底图是 OSM 时用 OSM 搜索（坐标同为 WGS-84）；否则走高德搜索（结果做 GCJ-02→WGS-84 纠偏）
+    let list = null;
+    if (baseKind === 'osm') {
+      try {
+        const r = await fetch('https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(query) + '&format=json&limit=5&addressdetails=1', { headers: { 'Accept': 'application/json' } });
+        if (r.ok) {
+          const d = await r.json();
+          if (Array.isArray(d) && d.length) list = d.map(x => ({ lat: parseFloat(x.lat), lon: parseFloat(x.lon), label: x.display_name }));
+        }
+      } catch (e) {}
+    }
+    if (!list) {
+      const r2 = await fetch('/api/geocode?q=' + encodeURIComponent(query));
+      const d2 = await r2.json();
+      const its = (d2 && d2.items) || [];
+      list = its.map(x => { const p = gcj2wgs(parseFloat(x.lat), parseFloat(x.lon)); return { lat: p[0], lon: p[1], label: x.address || x.name }; });
+      if (!list.length) list = null;
+    }
+    if (!list) { resBox.innerHTML = '<div style="padding:8px 12px;color:#999;font-size:12px;">未找到相关地点</div>'; return; }
+    resBox.innerHTML = '';
+    list.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'search-item';
+      el.innerText = item.label;
+      el.onclick = () => selectLocation(item.lat, item.lon, item.label);
+      resBox.appendChild(el);
+    });
+  } catch {
+    resBox.innerHTML = '<div style="padding:8px 12px;color:#ff5555;font-size:12px;">搜索出错，请稍后再试</div>';
+  }
+}
+
+function selectLocation(lat, lon, name) {
+  document.getElementById('search-results').style.display = 'none';
+  const d = toDisp(lat, lon);
+  map.setView(d, 16);
+  if (searchMarker) map.removeLayer(searchMarker);
+  const coordStr = lat.toFixed(6) + ', ' + lon.toFixed(6);
+  searchMarker = L.circleMarker(d, { color: '#00e5ff', fillColor: '#00e5ff', fillOpacity: .9, weight: 3, radius: 7 }).addTo(map);
+  searchMarker.bindPopup(
+    '<div style="text-align:center;padding:4px 2px;max-width:220px;">' +
+    '<div style="font-weight:bold;color:#00e5ff;font-size:13px;margin-bottom:4px;">' + name.split(',')[0] + '</div>' +
+    '<div style="font-size:11px;color:#aaa;margin-bottom:6px;word-break:break-all;">' + name + '</div>' +
+    '<input id="coord-input" type="text" readonly value="' + coordStr + '" style="width:160px;background:#181818;border:1px solid #444;color:#ff9944;font-family:monospace;font-size:12px;text-align:center;padding:3px;border-radius:3px;margin-bottom:6px;display:block;margin-left:auto;margin-right:auto;cursor:pointer;" onclick="this.select();">' +
+    '<button class="pop-btn" onclick="copyCoord(\'' + coordStr + '\', this)">复制坐标</button> ' +
+    '<button class="pop-btn-add" onclick="openAddPanel(' + lat + ', ' + lon + ')">存为足迹</button>' +
+    '</div>'
+  ).openPopup();
+}
+
+/* ---------------- 复制 ---------------- */
+function copyCoord(text, btn) {
+  const done = () => { if (btn) btn.innerText = '已复制!'; };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand('copy'); done(); } catch { alert('请手动复制'); }
+  document.body.removeChild(ta);
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-box')) {
+    const s = document.getElementById('search-results');
+    if (s) s.style.display = 'none';
+  }
+});
+
+/* ---------------- 启动 ---------------- */
+(async function init() {
+  try {
+    fetch('/api/visit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ site: 'beento', path: location.pathname })
+    }).catch(() => {});
+  } catch {}
+  try {
+    const r = await fetch('/api/me', { cache: 'no-store' });
+    if (r.ok) { const d = await r.json(); await enterApp(d.username); }
+  } catch {}
+})();
+</script>
+</body>
+</html>
